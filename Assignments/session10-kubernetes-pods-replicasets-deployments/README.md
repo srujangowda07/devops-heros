@@ -4,7 +4,6 @@
 
 - **Name:** Srujan Gowda KS
 - **Enrollment Number:** 24BCS10339
-- **Course:** SST DevOps & Cloud
 - **Session:** 10 - Kubernetes Core Objects & Workload Strategies
 
 ---
