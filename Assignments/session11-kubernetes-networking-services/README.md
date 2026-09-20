@@ -3,7 +3,7 @@
 ## Student Details
 
 - **Name:** Srujan Gowda KS
-- **Enrollment Number:** 24BCS10339
+- **Roll Number:** 24BCS10339
 - **Session:** 11 - Kubernetes Services & DNS Architecture
 
 ---
