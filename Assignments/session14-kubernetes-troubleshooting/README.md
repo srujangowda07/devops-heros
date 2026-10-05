@@ -590,50 +590,136 @@ kubectl get endpoints broken-service
 
 <br>
 
-# Mini-Project: Troubleshooting Challenge & Submission Synthesis
+# Mini-Project: Kubernetes Troubleshooting Challenge
 
-## Troubleshooting Summary Table
+## 1. Challenge Overview & Architecture
 
-| Scenario | Symptom / Status | Diagnostic Command Used | Root Cause | Resolution |
+The Session 14 Mini-Project tests real-world incident response skills by deploying a multi-tier workload, introducing live failure modes, diagnosing them using Kubernetes primitives, and applying surgical fixes:
+
+```text
+[ Deployment: troubleshooting-app (2 replicas) ] ──► [ Pods: app=troubleshooting-app ]
+                        │                                          ▲
+                        ▼                                          │
+        [ Service: troubleshooting-service ] ──────────────────────┘
+                  (Selector: app=troubleshooting-app)
+                                   +
+        [ Isolated Broken Pod: project-broken-pod ]
+```
+
+---
+
+## 2. Challenge Part 1: Diagnosing & Fixing `project-broken-pod`
+
+### Manifest (`mini-project/broken-pod.yaml`)
+```yaml
+apiVersion: v1
+kind: Pod
+metadata:
+  name: project-broken-pod
+spec:
+  containers:
+    - name: app
+      image: nginx:this-tag-does-not-exist
+```
+
+### Investigation Commands Executed
+```bash
+cd mini-project
+
+# 1. Deploy broken workload
+kubectl apply -f broken-pod.yaml
+
+# 2. Observe status failure
+kubectl get pod project-broken-pod
+
+# 3. Inspect Events to isolate failure mode
+kubectl describe pod project-broken-pod
+```
+
+### Diagnostic Findings (Q&A Analysis)
+- **Question 1: What is the Pod status?**  
+  `ImagePullBackOff` (alternating with `ErrImagePull`).
+- **Question 2: What is the actual error?**  
+  `Failed to pull image "nginx:this-tag-does-not-exist": rpc error: code = NotFound desc = failed to pull and unpack image ... manifest unknown`.
+- **Question 3: Which command helped you find the reason?**  
+  `kubectl describe pod project-broken-pod` (under the **Events** timeline at the bottom).
+- **Question 4: What is wrong with the image?**  
+  The image tag `this-tag-does-not-exist` does not exist on Docker Hub registry.
+- **Question 5: How would you fix it?**  
+  Update the container image to an authoritative, existing tag such as `nginx:1.27`.
+
+### Resolution & Verification
+```bash
+# Apply fix by updating image tag to nginx:1.27
+sed -i 's/nginx:this-tag-does-not-exist/nginx:1.27/' broken-pod.yaml
+kubectl replace --force -f broken-pod.yaml
+
+# Verify pod reaches 1/1 Running state
+kubectl get pod project-broken-pod
+```
+
+![Mini-Project Broken Pod Describe Events](Screenshots/10-01-miniproject-broken-describe.png)
+
+![Mini-Project Fixed Pod Running](Screenshots/10-02-miniproject-pod-fixed.png)
+
+---
+
+## 3. Challenge Part 2: Service Selector Mismatch Outage
+
+### Incident Simulation & Symptoms
+In production, a common outage occurs when a Service selector is changed or typoed, leaving existing pods running but severing all inbound network traffic.
+
+### Commands Executed
+```bash
+# 1. Deploy baseline deployment and service
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml
+kubectl get svc,endpoints troubleshooting-service
+
+# 2. Simulate selector outage by patching with an incorrect label
+kubectl patch svc troubleshooting-service -p '{"spec":{"selector":{"app":"wrong-label"}}}'
+
+# 3. Observe the critical symptom: Endpoints drops to <none>!
+kubectl get svc,endpoints troubleshooting-service
+
+# 4. Apply fix: Restore selector to match Pod labels (app: troubleshooting-app)
+kubectl patch svc troubleshooting-service -p '{"spec":{"selector":{"app":"troubleshooting-app"}}}'
+
+# 5. Verify endpoints restoration
+kubectl get endpoints troubleshooting-service
+```
+
+### Root Cause Analysis & Resolution
+- **Root Cause:** A Service routes traffic exclusively through the dynamically maintained `Endpoints` object. When `spec.selector` (`app: wrong-label`) failed to match the pod labels (`app: troubleshooting-app`), the endpoint controller removed all backend IPs.
+- **Resolution:** Re-aligned the selector to `app: troubleshooting-app`. The controller immediately detected the active pods and repopulated endpoints (`10.244.0.36:80, 10.244.0.37:80`).
+
+![Mini-Project Service Endpoints Outage and Restoration](Screenshots/10-03-miniproject-service-fixed.png)
+
+---
+
+## 4. Troubleshooting Master Reference Matrix
+
+| Failure Mode | Primary Symptom | Diagnostic Tool | Underlying Root Cause | Permanent Resolution |
 | :--- | :--- | :--- | :--- | :--- |
-| **CrashLoopBackOff** | Pod status `CrashLoopBackOff`, restarts incrementing | `kubectl logs <pod> --previous` & `kubectl describe pod` | Startup command failed with `exit 1` | Replaced exit command with continuous process `sleep 3600` |
-| **ImagePullBackOff** | Pod status `ErrImagePull` $\rightarrow$ `ImagePullBackOff` | `kubectl describe pod` (Events section) | Non-existent image tag `nginx:this-image-does-not-exist` | Corrected image tag to valid version `nginx:1.27` |
-| **Pending Pod** | Pod status `Pending`, `Node: <none>` | `kubectl describe pod` (Events: `FailedScheduling`) | Invalid `nodeSelector` targeting missing hostname | Removed invalid `nodeSelector` to allow scheduling on `minikube` |
-| **Broken Service** | Service created but requests fail, `Endpoints: <none>` | `kubectl get endpoints <svc>` & `kubectl describe svc` | Service selector `app: does-not-exist` mismatched Pod label `app: web` | Aligned Service `spec.selector` to match Pod label `app: web` |
-| **DNS Resolution** | Name lookup failing inside container | `kubectl exec <pod> -- nslookup <svc>` & check `/etc/resolv.conf` | CoreDNS pod down or incorrect service FQDN queried | Queried FQDN `<svc>.<ns>.svc.cluster.local` and verified CoreDNS status |
+| **`CrashLoopBackOff`** | Container starts, terminates with non-zero exit, restart counter increments | `kubectl logs <pod> --previous` & `kubectl describe pod` | Application startup script syntax error, uncaught runtime exception, missing DB dependency | Fix application code, wrap transient scripts in long-running processes (`sleep 3600`) |
+| **`ImagePullBackOff`** | Status toggles between `ErrImagePull` and `ImagePullBackOff` | `kubectl describe pod` (Events section) | Typo in image name/tag, private registry authentication missing (`imagePullSecrets`) | Correct image tag to valid repository version, configure Docker registry credentials |
+| **`Pending` Pod** | Status stuck in `Pending`, `Node: <none>` | `kubectl describe pod` (`FailedScheduling` events) | Unmatched `nodeSelector`/affinity, node taint without toleration, insufficient CPU/memory | Remove erroneous nodeSelectors, adjust resource requests, add worker nodes |
+| **Silent Service Outage** | Service IP reachable but requests drop/timeout | `kubectl get endpoints <svc>` & `kubectl describe svc` | Typo in Service `spec.selector` mismatching Pod `metadata.labels` | Align Service `spec.selector` labels with Pod template labels |
+| **DNS Resolution Failure** | In-cluster lookup fails with `NXDOMAIN` | `kubectl exec <pod> -- nslookup <svc>` | Misconfigured search domains, querying incorrect namespace, or CoreDNS pod down | Query complete FQDN `<svc>.<ns>.svc.cluster.local`, verify CoreDNS in `kube-system` |
 
 ---
 
-## Conceptual Review & Reflection
+## 5. Conclusion & DevOps Engineering Takeaways
 
-### 1. What does `kubectl get` tell us?
-`kubectl get` provides a high-level summary of cluster resources, showing current state, ready container counts, restart numbers, and uptime.
+Mastering Kubernetes troubleshooting requires a disciplined, methodical approach rather than trial-and-error:
 
-### 2. What is the difference between `get` and `describe`?
-`kubectl get` is a quick macro overview ("What is the status?"), whereas `kubectl describe` is an in-depth inspection ("Why is it in this status?"), revealing container configurations, conditions, and the control plane Events timeline.
+1. **Follow the Diagnostic Escalation Ladder:**
+   $$\mathbf{kubectl\;get} \;\longrightarrow\; \mathbf{kubectl\;describe} \;\longrightarrow\; \mathbf{kubectl\;logs} \;\longrightarrow\; \mathbf{kubectl\;exec}$$
+   - Start with macro state visibility (`get`), inspect control plane events and conditions (`describe`), analyze application stdout/stderr (`logs`), and validate internal network state directly from within the container (`exec`).
 
-### 3. Why do we use `kubectl logs`?
-It reads application-level standard output (`stdout`) and standard error (`stderr`) logs, essential for debugging application logic errors, failed database connections, and startup failures.
+2. **Understand the Separation of Control Plane and Workload Layers:**
+   - A pod failure is often not a bug in the application, but a failure in scheduling (`Pending`), image transport (`ImagePullBackOff`), or storage provisioning (`PersistentVolumeClaim`).
+   - Similarly, a networking outage frequently occurs at the routing abstraction layer (`Endpoints: <none>`) rather than inside the web container itself.
 
-### 4. When would you use `kubectl exec`?
-When you need to perform internal inspection from inside a running container, such as verifying local configuration files, testing network connectivity (`curl localhost`), or checking DNS configurations (`/etc/resolv.conf`).
-
-### 5. What does `CrashLoopBackOff` mean?
-It means the container starts, crashes (exits with a non-zero code), and Kubernetes pauses with an increasing back-off delay before restarting it again.
-
-### 6. What does `ImagePullBackOff` mean?
-It indicates Kubernetes failed to download the container image (due to invalid image name/tag, private registry authentication failure, or network issues) and is pausing before retrying.
-
-### 7. Why can a Pod remain in `Pending`?
-A Pod remains `Pending` when `kube-scheduler` cannot bind it to any node. Common reasons include insufficient CPU/memory resources, unmatched `nodeSelector`/affinity rules, unfulfilled PVCs, or node taints.
-
-### 8. Why can a Service have no endpoints?
-A Service will have `Endpoints: <none>` if its `spec.selector` labels do not match the labels defined under `spec.template.metadata.labels` of any running pods.
-
-### 9. What is the relationship between a Service selector and Pod labels?
-The Service selector acts as a query filter. Kubernetes watches pod labels and automatically registers matching Pod IP addresses into the Service's Endpoints/EndpointSlices object to route traffic.
-
-### 10. What is Kubernetes DNS?
-Kubernetes DNS (CoreDNS) is an internal cluster name resolution service that assigns consistent domain names (`<service>.<namespace>.svc.cluster.local`) to Service ClusterIPs, enabling decoupled microservice communication.
-
----
+3. **Treat Events as the First Source of Truth:**
+   - The `Events` timeline in `kubectl describe` records exact error messages from `kube-scheduler`, `kubelet`, and CNI/CSI plugins, instantly pinpointing root causes without guesswork.
