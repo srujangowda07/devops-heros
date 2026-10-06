@@ -1,207 +1,223 @@
-# CI/CD Demo Project with GitHub Actions
+# CI/CD & GitHub Actions Demo
 
-## 1. Objective
+## 1. Project Overview
 
-The primary objective of this project is to build and demonstrate an end-to-end Continuous Integration and Continuous Delivery (CI/CD) pipeline using **GitHub Actions**. The pipeline automatically validates, tests, secures, builds, packages, and containerizes a software application on every code commit and pull request.
+This project is the practical submission for **DevOps Session 16: CI/CD & GitHub Actions**. It implements a complete, automated Continuous Integration and Continuous Delivery (CI/CD) pipeline for a software application using **GitHub Actions**.
+
+The pipeline automatically validates code syntax, runs unit test suites, performs repository security checks, compiles application build artifacts, and builds a containerized Docker image upon every code push and pull request.
+
+The project is hosted in the following GitHub repository:  
+**Repository:** [https://github.com/srujangowda07/CICD_DEV](https://github.com/srujangowda07/CICD_DEV)
 
 ---
 
-## 2. Application Overview
+## 2. Objectives
 
-The project features a lightweight Python application (`app/calculator.py`) that implements fundamental mathematical operations (`add`, `subtract`, `multiply`, `divide`). A dedicated unit test suite (`tests/test_calculator.py`) validates correctness and edge-case handling (e.g., zero-division exceptions). The simplicity of the application ensures that the primary focus remains entirely on CI/CD engineering, workflow orchestration, and deployment automation.
+This project demonstrates the core principles of modern DevOps automation:
+
+- **CI vs CD**: Understanding the distinction between continuous testing/integration and delivery readiness.
+- **GitHub Actions**: Configuring event-driven automation directly inside a GitHub repository.
+- **Workflows**: Defining pipeline specifications as version-controlled YAML files.
+- **Jobs**: Organizing pipeline tasks into modular, parallel, and sequential execution blocks.
+- **Steps**: Executing discrete tasks using shell commands and pre-built marketplace actions.
+- **Runners**: Leveraging isolated GitHub-hosted environments (`ubuntu-latest`).
+- **Secrets**: Securely referencing sensitive variables without exposing them in logs or source control.
+- **Build**: Automating the packaging of application source code into distributable bundles.
+- **Test**: Automating quality gates and unit tests with `pytest`.
+- **Artifacts**: Persisting build outputs across jobs and for long-term retention.
+- **Docker**: Containerizing the application as a deployment-readiness gate.
+- **Pipeline Execution**: Observing live end-to-end execution and handling pass/fail scenarios.
 
 ---
 
 ## 3. CI vs CD
 
-Modern software delivery relies on two complementary practices:
+Software delivery pipelines bridge the gap between developer workstations and target runtime environments through two key phases:
+
+### Continuous Integration (CI)
+Continuous Integration is the practice of automatically building and testing software whenever a developer pushes changes to the shared repository. Its goal is early defect detection:
+- In this project, CI is demonstrated by the **Test Application** and **Security & Secret Scan** jobs.
+- Every commit is tested against unit test suites using `pytest`. If any test fails, the pipeline halts immediately, preventing broken code from progressing.
+
+### Continuous Delivery (CD) vs Continuous Deployment
+Continuous Delivery ensures that validated code is automatically packaged and prepared in a deployable state at all times:
+- In this project, CD is demonstrated by the **Docker Build (CD Preparation)** job and **Build & Artifact** job.
+- Passing code is packaged with metadata into an artifact bundle and built into a Docker container image (`application:latest`).
+- **Note on Scope**: This project demonstrates **deployment readiness** (CD preparation). It does not perform live production deployment, as no external cloud target was specified for this assignment.
+
+### Difference Summary
+| Dimension | Continuous Integration (CI) | Continuous Delivery (CD) |
+|---|---|---|
+| **Focus** | Code health, unit testing, syntax validation | Packaging, containerization, deployment readiness |
+| **Output** | Test reports, test pass/fail status | Deployable artifacts, Docker images |
+| **Trigger** | Every push and pull request | After CI stages succeed |
+
+---
+
+## 4. CI/CD Pipeline
+
+The pipeline is structured with clear dependencies using the `needs` keyword:
 
 ```text
-[ Developer Push ]
-       │
-       ▼
- ┌───────────┐     Continuous Integration (CI)
- │   Build   │  ── Automatically compiles code, installs dependencies,
- ├───────────┤     and executes test suites on every push to detect defects early.
- │   Test    │
- └─────┬─────┘
-       │
-       ▼
- ┌───────────┐     Continuous Delivery (CD)
- │  Package  │  ── Automatically packages software into deployable units
- ├───────────┤     (e.g., Docker images, artifacts) ready for immediate deployment.
- │  Deploy   │
- └───────────┘
+Code Push / Pull Request / Manual Dispatch
+                    ↓
+         GitHub Actions Workflow
+                    ↓
+      ┌───────────────────────────┐
+      │     Test Application      │
+      └─────────────┬─────────────┘
+                    │
+         ┌──────────┴──────────┐
+         ▼                     ▼
+┌──────────────────┐  ┌──────────────────┐
+│  Security &      │  │  Build &         │
+│  Secret Scan     │  │  Artifact        │
+└────────┬─────────┘  └──────────────────┘
+         │
+         ▼
+┌──────────────────┐
+│  Docker Build    │
+│ (CD Preparation) │
+└──────────────────┘
 ```
 
-- **Continuous Integration (CI)**: The automated process where code changes from multiple developers are regularly integrated into a shared repository, followed by automated builds and automated tests to catch integration errors as early as possible.
-- **Continuous Delivery (CD)**: An extension of CI where code changes that pass all tests are automatically packaged, containerized, and staged, ensuring that the application can be released to any environment at any time with a single trigger.
-- **Continuous Deployment (CD)**: An advanced state of Continuous Delivery where every change that passes all pipeline stages is automatically pushed to live production without manual intervention.
+### Dependency Logic
+- **`test`**: Runs first with no dependencies.
+- **`security-check`**: Runs in parallel with testing to scan for sensitive files and check repository secrets.
+- **`build`**: Declares `needs: test`. The build script only runs if all unit tests pass.
+- **`docker-build`**: Declares `needs: [test, security-check]`. The Docker container image is built only when both functional tests and security checks pass.
 
 ---
 
-## 4. GitHub Actions
+## 5. GitHub Actions Concepts
 
-**GitHub Actions** is a cloud-native automation and CI/CD platform built directly into GitHub. It enables developers to define automation workflows that trigger on any GitHub repository event (e.g., `push`, `pull_request`, release creation, or manual triggers). Workflows are defined entirely as version-controlled YAML files residing within `.github/workflows/`.
+### Workflow
+A workflow is an automated, configurable process defined in YAML and stored in `.github/workflows/ci.yml`. It defines what events trigger the pipeline and what jobs should be executed.
 
----
+### Jobs
+Jobs are independent sets of steps that execute on a runner. This project defines 4 jobs:
+1. `test`: Sets up Python, installs dependencies, and executes unit tests.
+2. `security-check`: Audits repository files for leaked credentials and verifies repository secrets.
+3. `build`: Executes `build.sh` and packages the output into an uploaded artifact.
+4. `docker-build`: Builds a container image from `Dockerfile` as the deployment-readiness gate.
 
-## 5. Workflow
+### Steps
+Steps are individual tasks within a job that run sequentially. Steps either run shell commands (`run:`) or invoke reusable actions (`uses:`):
+- `actions/checkout@v4`: Checks out repository source code onto the runner.
+- `actions/setup-python@v5`: Configures the Python 3.12 runtime environment.
+- `pip install -r requirements.txt`: Installs dependencies.
+- `pytest -v`: Executes automated tests.
+- `actions/upload-artifact@v4`: Persists generated build files.
+- `docker/setup-buildx-action@v3`: Configures Docker Buildx engine.
 
-A **Workflow** is an automated, configurable process comprising one or more jobs. Workflows are defined in YAML and stored in `.github/workflows/ci.yml`.
+### Runner
+A runner is the virtual server that executes workflow jobs. This project uses `runs-on: ubuntu-latest`, which provides a clean, isolated Ubuntu Linux virtual machine managed by GitHub for each job.
 
-### Workflow Triggers
-This pipeline triggers on three events:
-- `push: branches: [main]`: Executes automatically whenever code is merged or pushed directly to the `main` branch.
-- `pull_request: branches: [main]`: Executes on incoming pull requests targeting `main`, preventing faulty code from being merged.
-- `workflow_dispatch`: Enables manual triggering directly from the GitHub Actions web interface for on-demand execution.
+### Secrets
+Secrets allow workflows to access sensitive data (API keys, deployment tokens, passwords) without hardcoding them into source code:
+- **Demonstration Secret**: The workflow references `${{ secrets.DEMO_SECRET }}`.
+- **Safety**: The secret is only checked for presence (`[ -n "$DEMO_SECRET" ]`) and is **never printed** to the logs.
+- **Purpose**: `DEMO_SECRET` is purely for educational demonstration and is not required by the calculator application. In enterprise CI/CD pipelines, repository secrets store Docker Hub tokens, AWS access keys, or production database connection strings.
 
----
-
-## 6. Jobs
-
-A **Job** is a collection of sequential steps that execute on the same runner environment. By default, jobs run in parallel unless explicit dependencies are established using the `needs` keyword.
-
-Our pipeline defines 4 distinct jobs:
-1. `test`: Runs unit tests using `pytest` to validate application correctness.
-2. `security-check`: Audits repository files for leaked secrets and verifies secure credentials.
-3. `build`: Executes `build.sh` to produce deployable artifacts (`needs: test`).
-4. `docker-build`: Builds a production-ready container image (`needs: [test, security-check]`).
-
-### Dependency Flow (`needs`)
-```text
-      ┌─────────┐
-      │  test   │
-      └──┬───┬──┘
-         │   │
-   ┌─────┘   └─────┐
-   ▼               ▼
-┌────────┐   ┌────────────────┐
-│ build  │   │ security-check │
-└────────┘   └───────┬────────┘
-                     │
-                     ▼
-             ┌──────────────┐
-             │ docker-build │
-             └──────────────┘
-```
+### Artifacts
+Artifacts are files produced during a workflow run that are saved after the runner VM is destroyed:
+- The build job generates `build/` containing `calculator.py` and `build-info.txt`.
+- The workflow uploads this bundle as `application-build` via `actions/upload-artifact@v4`.
+- Artifacts allow team members to download verified build outputs or pass binaries between pipeline stages.
 
 ---
 
-## 7. Steps
+## 6. Project Structure
 
-A **Step** is an individual task within a job. Steps execute sequentially on the runner. Steps can either:
-- **Execute shell commands** via the `run` directive (e.g., `pytest -v`, `./build.sh`).
-- **Execute reusable Actions** via the `uses` directive (e.g., `actions/checkout@v4`, `actions/setup-python@v5`).
-
----
-
-## 8. Runners
-
-A **Runner** is the compute server that executes the jobs defined in the workflow:
-- **GitHub-Hosted Runners**: Managed virtual machines provided on-demand by GitHub. Our workflow utilizes `runs-on: ubuntu-latest`, providing a fresh, isolated Ubuntu Linux environment for each job run.
-- **Self-Hosted Runners**: Dedicated servers managed by your organization when custom hardware, operating systems, or internal network access is required.
-
----
-
-## 9. Secrets
-
-In automated pipelines, credentials, tokens, and sensitive keys must never be committed to source code.
-
-- **GitHub Repository Secrets**: Stored encrypted in GitHub under **Settings** $\rightarrow$ **Secrets and variables** $\rightarrow$ **Actions**.
-- **Secure Secret Access**: Secrets are injected securely into runner environment variables using expression syntax:
-  ```yaml
-  env:
-    DEMO_SECRET: ${{ secrets.DEMO_SECRET }}
-  ```
-- **Masking & Safety**: GitHub Actions automatically masks secret values from execution logs, preventing credential exposure during job execution.
-
----
-
-## 10. Build Stage
-
-The **Build stage** compiles or packages the application into a distribution-ready state:
-- Executed by `build.sh`.
-- Creates a clean `build/` directory containing the application code and an automated build metadata stamp (`build-info.txt`) with application name, status, and build timestamp.
-- Ensures reproducible, deterministic packaging across environments.
-
----
-
-## 11. Test Stage
-
-The **Test stage** verifies that the application code satisfies functional specifications:
-- Uses `pytest` to execute all unit test cases in `tests/test_calculator.py`.
-- Tests basic operations (`add`, `subtract`, `multiply`, `divide`) and validates exception handling (`ZeroDivisionError`).
-- **Gatekeeping Role**: If any test fails, the job exits with a non-zero exit code (`exit 1`), halting downstream packaging and deployment immediately.
-
----
-
-## 12. Artifacts
-
-**Artifacts** are files or directories produced during a workflow run that persist after the runner VM is destroyed:
-- Uploaded using the official `actions/upload-artifact@v4` action.
-- The build directory (`build/`) is archived and uploaded as `application-build`.
-- Artifacts can be inspected, downloaded from the GitHub Actions UI, or consumed by subsequent workflow jobs or release pipelines.
-
----
-
-## 13. Docker / CD Stage (Deployment Readiness)
-
-In modern cloud-native DevOps architectures, **containerization represents the standard deployment artifact**:
-- The `docker-build` job reads the `Dockerfile` and builds a lightweight container image:
-  ```bash
-  docker build -t application:latest .
-  ```
-- Uses `python:3.12-slim` base image to maintain a minimal container footprint.
-- Acts as the Continuous Delivery (CD) readiness gateway, validating that the tested application successfully compiles into an executable, distributable container image ready for deployment to Kubernetes, Docker Hub, AWS ECS, or Azure Container Apps.
-
----
-
-## 14. Pipeline Execution & Verification
-
-To execute and verify this pipeline:
-
-### Local Validation
-```bash
-# 1. Run unit tests locally
-pytest -v
-
-# 2. Run build script locally
-chmod +x build.sh
-./build.sh
-
-# 3. Build container locally
-docker build -t calculator-app:local .
-```
-
-### GitHub Cloud Execution
-1. Push changes to the `main` branch of your GitHub repository.
-2. Navigate to the **Actions** tab in GitHub.
-3. Observe the workflow run executing:
-   - `✓ Test Application`
-   - `✓ Security & Secret Check`
-   - `✓ Build & Artifact`
-   - `✓ Docker Build (CD Preparation)`
-4. Download the `application-build` artifact from the run summary.
-
----
-
-## 15. Project Structure
+The project structure contains only verified, existing files:
 
 ```text
-10-final-cicd-pipeline/
-├── .github/
-│   └── workflows/
-│       └── ci.yml               # Complete CI/CD GitHub Actions workflow
-├── app/
-│   ├── __init__.py
-│   └── calculator.py            # Application source code
-├── tests/
-│   ├── __init__.py
-│   └── test_calculator.py       # Automated unit test suite
-├── .gitignore                   # Excludes caches, venv, and build artifacts
-├── build.sh                     # Packaging and build automation script
-├── Dockerfile                   # Container packaging manifest
-├── README.md                    # In-depth CI/CD technical documentation
-└── requirements.txt             # Project runtime & test dependencies
+.github/
+└── workflows/
+    └── ci.yml               # GitHub Actions workflow definition
+app/
+    └── calculator.py            # Python calculator application
+tests/
+    └── test_calculator.py       # Pytest unit test suite
+.gitignore                   # Excludes caches, venvs, and build outputs
+build.sh                     # Build and packaging shell script
+Dockerfile                   # Docker container manifest
+requirements.txt             # Project dependencies (pytest)
+README.md                    # Technical documentation
 ```
+
+---
+
+## 7. Pipeline Jobs
+
+| Job | Purpose | Result |
+| --- | --- | --- |
+| **Test Application** | Installs dependencies and runs pytest suite | 5 tests pass |
+| **Security & Secret Scan** | Checks for sensitive files (`.env`, `*.pem`, `*.key`) and verifies secret configuration | Pass |
+| **Build & Artifact** | Executes `build.sh` and archives the `build/` directory | `application-build` uploaded |
+| **Docker Build** | Builds container image (`application:latest`) for CD deployment readiness | Pass |
+
+---
+
+## 8. Pipeline Triggers
+
+The workflow (`ci.yml`) is configured to run under three distinct conditions:
+- **`push: branches: [main]`**: Automatically triggers whenever code is merged or pushed to the `main` branch.
+- **`pull_request: branches: [main]`**: Automatically tests any pull request targeting `main`, protecting the trunk branch from defects.
+- **`workflow_dispatch`**: Allows manual execution on demand from the GitHub Actions web interface.
+
+---
+
+## 9. Pipeline Execution
+
+When a code push occurs, GitHub Actions executes the following sequence:
+
+1. **Checkout & Environment Setup**: The runner checks out the repository code and sets up Python 3.12.
+2. **Testing**: `pytest` executes 5 test cases (`test_add`, `test_subtract`, `test_multiply`, `test_divide`, `test_divide_by_zero`).
+3. **Security Validation**: The repository is scanned for uncommitted credential files (`.env`, `*.pem`, `*.key`), and `DEMO_SECRET` is checked.
+4. **Build & Artifact Upload**: `build.sh` creates `build/` with build metadata (`build-info.txt`) and uploads it as `application-build`.
+5. **Docker Containerization**: Docker Buildx builds the `application:latest` image, validating deployment readiness.
+
+---
+
+## 10. Screenshots
+
+### Successful Workflow Execution
+![Successful GitHub Actions workflow](screenshot/01-workflow-success.png)
+*This screenshot shows the successful execution of Run #1 on `main` (`feat(session16)...`). All 4 jobs (`Test Application` in 13s, `Security & Secret Check` in 4s, `Build & Artifact` in 9s, and `Docker Build (CD Preparation)` in 20s) passed with green checkmarks in 40s total duration, generating 1 artifact.*
+
+---
+
+### Pipeline Failure & Job Dependency Blocking
+![Pipeline Failure and Job Blocking](screenshot/02-pipeline-failure-blocking.png)
+*This screenshot demonstrates the CI quality gate in action during Run #2 (`test: demonstrate CI failure`). The `Test Application` job failed (9s). Because `Build & Artifact` and `Docker Build` depend on `test` via `needs`, GitHub Actions automatically blocked downstream jobs (0s) from executing.*
+
+---
+
+### Pytest Failure Details in Job Logs
+![Pytest Failure Log](screenshot/03-pytest-failure-details.png)
+*This screenshot shows the detailed terminal logs inside the failed `Test Application` job. Pytest caught an assertion error (`FAILED tests/test_calculator.py::test_add - assert 15 == 999`) and exited with code 1, proving that broken code cannot sneak past automated testing into packaging or deployment.*
+
+---
+
+## 11. Result
+
+The GitHub Actions CI/CD pipeline successfully:
+- Automated test execution with 100% test pass rates under Python 3.12.
+- Audited the repository for sensitive files and demonstrated secret injection.
+- Packaged the application and uploaded the `application-build` artifact.
+- Built a Docker container image confirming Continuous Delivery readiness.
+- Validated pipeline protection by blocking build and packaging stages when a test failure occurred.
+
+---
+
+## 12. Conclusion
+
+This assignment provided practical experience with modern CI/CD automation using GitHub Actions. By defining pipelines as code, developers eliminate manual build errors, detect regressions within seconds of pushing, and ensure that every deployable artifact is tested and packaged reproducibly.
+
+---
+
+## 13. Repository
+
+- **GitHub Repository**: [https://github.com/srujangowda07/CICD_DEV](https://github.com/srujangowda07/CICD_DEV)
+- **Workflow File**: `.github/workflows/ci.yml`
