@@ -17,7 +17,13 @@ In standard Kubernetes deployments, managing multiple environments (Development,
 - **Values (`values.yaml`)**: Key-value configuration files that decouple dynamic environment-specific variables from workload templates.
 - **Release Management**: Every installation and upgrade generates an immutable **Revision** stored securely inside Kubernetes Secrets, enabling zero-downtime upgrades, atomic rollouts, and instant rollbacks.
 
-This report comprehensively documents the practical execution, workflows, template architectures, lifecycle operations (Tasks 1–9), and the end-to-end Notes App Helm Mini-Project.
+## Assignment Deliverables Summary
+
+| Assignment Task | Focus Area | Status | Key Screenshot(s) |
+|---|---|---|---|
+| **Task 1: Helm Commands** | Hands-on execution of all 11 core commands (`repo`, `search`, `create`, `install`, `list`, `status`, `get`, `upgrade`, `history`, `rollback`, `uninstall`) | **Completed** | `Screenshot/task1-helm-core-commands.png` |
+| **Task 2: Helm Rollback** | Complete lifecycle workflow: Install $\rightarrow$ Upgrade $\rightarrow$ Verify $\rightarrow$ Upgrade (Faulty) $\rightarrow$ Verify $\rightarrow$ Rollback $\rightarrow$ Verify | **Completed** | `Screenshot/task2-01-rollback-upgrades-and-failure.png`, `Screenshot/task2-02-rollback-success-and-history.png` |
+| **Task 3: Mini Project** | Production Notes App Chart (`Chart.yaml`, `values.yaml`, `values-prod.yaml`, templates, ConfigMap, Dev $\rightarrow$ Prod rollout, rollback, teardown) | **Completed** | `Screenshot/task3-01-miniproject-dev-to-prod.png`, `Screenshot/task3-02-miniproject-rollback-and-cleanup.png` |
 
 ---
 
@@ -67,15 +73,118 @@ kubectl get pods
 
 ## Output & Verification
 
-![Task 1 - Helm Version & Initial List](Screenshot/01-01-helm-version-and-list.png)
+![Task 1 - Helm Version](Screenshot/01-01-helm-version.png)
 
-![Task 1 - Add & Update Bitnami Repository](Screenshot/01-02-helm-repo-add-update.png)
+![Task 1 - Add & Update Bitnami Repository](Screenshot/01-02-helm-repo-add-update-install.png)
 
-![Task 1 - Helm Install Nginx Release](Screenshot/01-03-helm-install-nginx.png)
+![Task 1 - Verify Pods, Services & Active Release](Screenshot/01-03-verify-pods-services-helm-list.png)
 
-![Task 1 - Verify Pods, Services & Active Release](Screenshot/01-04-verify-pods-services-helm-list.png)
+---
 
-![Task 1 - Uninstall Release & Resource Cleanup](Screenshot/01-05-helm-uninstall-cleanup.png)
+## Hands-On Practice: All 11 Core Helm Commands
+
+As required by the session assignment, each core Helm command was executed, evaluated, and documented below:
+
+### 1. `helm repo`
+- **Purpose**: Manages remote Helm chart repositories (HTTP/HTTPS/OCI registries) where packaged charts are hosted.
+- **Commands**:
+  ```bash
+  helm repo add bitnami https://charts.bitnami.com/bitnami
+  helm repo update
+  helm repo list
+  ```
+- **What it does**: Fetches the `index.yaml` repository catalog containing chart names, versions, and checksums and caches them locally on disk.
+
+### 2. `helm search`
+- **Purpose**: Queries Helm repositories or Artifact Hub for available charts and application versions.
+- **Commands**:
+  ```bash
+  helm search repo bitnami/nginx
+  helm search hub prometheus
+  ```
+- **What it does**: Scans the local repository cache (`helm search repo`) or queries Artifact Hub API (`helm search hub`) matching keywords and returns chart version, app version, and description.
+
+### 3. `helm create`
+- **Purpose**: Scaffolds a new, standardized chart directory skeleton with default templates and best practices.
+- **Command**:
+  ```bash
+  helm create demo-chart
+  ```
+- **What it does**: Generates `Chart.yaml`, `values.yaml`, `templates/` (`deployment.yaml`, `service.yaml`, `ingress.yaml`, `hpa.yaml`, `serviceaccount.yaml`, `_helpers.tpl`, `NOTES.txt`), and `.helmignore`.
+
+### 4. `helm install`
+- **Purpose**: Deploys a Helm chart to the Kubernetes cluster as a new named Release (Revision 1).
+- **Command**:
+  ```bash
+  helm install demo-release ./simple-chart
+  ```
+- **What it does**: Renders Go templates using supplied values, submits the generated manifests to the Kubernetes API server via your `kubeconfig` context, and creates a release tracking Secret.
+
+### 5. `helm list`
+- **Purpose**: Lists all active or deployed Helm releases in the current or all namespaces.
+- **Commands**:
+  ```bash
+  helm list
+  helm list -A  # across all namespaces
+  ```
+- **What it does**: Queries Kubernetes Secrets matching label `owner=helm` and displays release name, namespace, revision, status, chart version, and app version.
+
+### 6. `helm status`
+- **Purpose**: Displays the real-time operational status, metadata, and provisioned Kubernetes resources of a deployed release.
+- **Command**:
+  ```bash
+  helm status demo-release
+  ```
+- **What it does**: Retrieves release state from the cluster, showing deployment status (`STATUS: deployed`), revision number, namespace, and all active resources (Deployments, Services, Pods, ConfigMaps).
+
+### 7. `helm get`
+- **Purpose**: Inspects the low-level stored release artifacts stored in Kubernetes Secrets.
+- **Commands**:
+  ```bash
+  helm get values demo-release      # Shows user-supplied override values
+  helm get values demo-release -a   # Shows all computed/default values
+  helm get manifest demo-release    # Shows the exact rendered YAML manifests applied to cluster
+  helm get all demo-release         # Shows notes, values, and manifests combined
+  ```
+- **What it does**: Decodes the base64 gzipped release secret directly without querying individual Kubernetes API endpoints.
+
+### 8. `helm upgrade`
+- **Purpose**: Applies configuration changes, value overrides, or updated templates to an existing release.
+- **Command**:
+  ```bash
+  helm upgrade demo-release ./simple-chart --set replicaCount=3
+  ```
+- **What it does**: Computes a three-way merge patch between the previous manifest, the new rendered manifest, and the live Kubernetes state, incrementing the Revision number to 2.
+
+### 9. `helm history`
+- **Purpose**: Displays the complete audit log of revisions for a given release.
+- **Command**:
+  ```bash
+  helm history demo-release
+  ```
+- **What it does**: Lists every revision (`1`, `2`, `3`...), timestamp, status (`superseded`, `deployed`), chart version, and description (`Install complete`, `Upgrade complete`, `Rollback to 2`).
+
+### 10. `helm rollback`
+- **Purpose**: Instantly rolls back a release to a previously known healthy revision.
+- **Command**:
+  ```bash
+  helm rollback demo-release 1
+  ```
+- **What it does**: Restores the exact manifest configuration of Revision 1 and applies it as a brand-new revision (Revision 3), preserving the full audit trail.
+
+### 11. `helm uninstall`
+- **Purpose**: Deletes a release and purges all associated Kubernetes resources from the cluster.
+- **Command**:
+  ```bash
+  helm uninstall demo-release
+  ```
+- **What it does**: Cascades deletion across all Kubernetes objects associated with the release (Deployments, Pods, Services, Secrets) and marks or purges the Helm release secret.
+
+---
+
+### Task 1 Output & Verification Screenshot
+
+![Task 1 - Helm Search, Status, Get Values & List](Screenshot/task1-helm-core-commands.png)
 
 ---
 
@@ -128,8 +237,6 @@ kubectl get pods
 ![Task 2 - Install Demo Release](Screenshot/02-03-helm-install-demo-release.png)
 
 ![Task 2 - Verify Release List & Active Resources](Screenshot/02-04-helm-list-and-resources.png)
-
-![Task 2 - Uninstall & Resource Teardown](Screenshot/02-05-helm-uninstall-cleanup.png)
 
 ---
 
@@ -238,15 +345,11 @@ kubectl get pods
 
 ## Output & Verification
 
-![Task 3 - Chart Metadata & Values](Screenshot/03-01-chart-metadata-and-values.png)
+![Task 3 - Template Rendering Part 1](Screenshot/03-01-helm-template-render.png)
 
-![Task 3 - Deployment & Service Templates](Screenshot/03-02-templates-deployment-service.png)
+![Task 3 - Template Rendering Part 2](Screenshot/03-02-helm-template-render.png)
 
-![Task 3 - Template Local Rendering](Screenshot/03-03-helm-template-render.png)
-
-![Task 3 - Install & Resource Verification](Screenshot/03-04-helm-install-and-verify.png)
-
-![Task 3 - Release Uninstall & Cleanup](Screenshot/03-05-helm-uninstall-cleanup.png)
+![Task 3 - Install & Resource Verification](Screenshot/03-03-helm-install-and-verif.png)
 
 ---
 
@@ -444,37 +547,56 @@ helm upgrade --install web-app ./app-chart
 
 # Task 8: Release History & Rollback Mechanisms (`08-rollback`)
 
-## Objective
+## Rollback Workflow Lifecycle
 
-Simulate a production incident caused by a broken container image tag, inspect release history, and execute a sub-second rollback to restore service availability.
+```text
+Install (Revision 1)
+   ↓
+Upgrade (Revision 2 - Scale Replicas)
+   ↓
+Verify (Check pods and release history)
+   ↓
+Upgrade again (Revision 3 - Faulty image tag)
+   ↓
+Verify (Observe ImagePullBackOff failure)
+   ↓
+Rollback (Rollback to healthy Revision 2)
+   ↓
+Verify (Confirm pod restoration and audit trail)
+```
 
-## Workflow & Commands
+## Workflow & Commands Executed
 
 ```bash
-cd devops-heros/session-15-helm/08-rollback
+cd devops-heros/session-15-helm/07-install-upgrade
 
-# 1. Install healthy release (Revision 1)
+# 1. Install Revision 1 (healthy nginx, 1 replica)
 helm install rollback-demo ./app-chart
+kubectl get pods
 
-# 2. Upgrade to a broken image tag (Revision 2)
-helm upgrade rollback-demo ./app-chart --set image.tag=doesnotexist
-kubectl get pods  # Observe ImagePullBackOff
+# 2. Upgrade to Revision 2 (scale to 3 replicas)
+helm upgrade rollback-demo ./app-chart --set replicaCount=3
 
-# 3. Inspect release history
+# 3. Verify Revision 2
+kubectl get pods
 helm history rollback-demo
 
-# 4. Execute instant rollback to healthy Revision 1
-helm rollback rollback-demo 1
+# 4. Upgrade again to Revision 3 with a broken image tag
+helm upgrade rollback-demo ./app-chart --set image.tag=invalid-nonexistent-tag
 
-# 5. Verify restored pod health & new revision status
-kubectl get pods  # Pods return to Running 1/1
+# 5. Verify failure state
+kubectl get pods  # Observe ImagePullBackOff / ErrImagePull
 helm history rollback-demo
 
-# 6. Automatic Rollback with --atomic
-helm upgrade rollback-demo ./app-chart \
-  --set image.tag=doesnotexist \
-  --atomic \
-  --timeout 60s
+# 6. Execute instant rollback to healthy Revision 2
+helm rollback rollback-demo 2
+
+# 7. Verify restored pods & audit history
+kubectl get pods  # All 3 pods return to Running 1/1
+helm history rollback-demo  # Shows Revision 4: "Rollback to 2"
+
+# 8. Clean up resources
+helm uninstall rollback-demo
 ```
 
 ## Concepts & What Was Learned
@@ -482,6 +604,12 @@ helm upgrade rollback-demo ./app-chart \
 1. **Release History Inspection (`helm history`)**: Displays all revisions with statuses (`superseded`, `deployed`), timestamps, chart versions, and action descriptions.
 2. **Append-Only Rollback Model**: Rolling back to Revision 1 does not erase Revision 2. Instead, Helm deploys a **new Revision 3** that mirrors Revision 1's state, preserving full audit history.
 3. **Atomic Deployments (`--atomic --timeout`)**: If pods fail readiness probes or crash during rollout within the specified timeout window, Helm automatically triggers a rollback without human intervention.
+
+## Output & Verification
+
+![Task 2 - Rollback Upgrades & Failure State](Screenshot/task2-01-rollback-upgrades-and-failure.png)
+
+![Task 2 - Rollback Success & Restored Revision History](Screenshot/task2-02-rollback-success-and-history.png)
 
 ---
 
@@ -638,6 +766,12 @@ kubectl get pods  # All 3 pods successfully return to Running
 helm uninstall notes-dev
 ```
 
+## Output & Verification
+
+![Mini Project - Dev Deployment & Production Upgrade](Screenshot/task3-01-miniproject-dev-to-prod.png)
+
+![Mini Project - Broken Release Rollback & Clean Teardown](Screenshot/task3-02-miniproject-rollback-and-cleanup.png)
+
 ## Summary of Accomplishments & Mastered Capabilities
 
 ```text
@@ -659,11 +793,92 @@ helm uninstall notes-dev
 | `helm version` | Prints client build and version information |
 | `helm create <name>` | Scaffolds a new starter chart directory structure |
 | `helm lint <chart>` | Runs static analysis and syntax validation on chart files |
-| `helm template <release> <chart>` | Renders Go templates locally to inspect generated YAML |
+| `helm template <release> <chart>` | Renders Go templates locally to inspect generated YAML (dry-run) |
 | `helm install <release> <chart>` | Deploys a new chart release to the Kubernetes cluster |
 | `helm upgrade <release> <chart>` | Upgrades an existing release with new values or template changes |
 | `helm upgrade --install <release> <chart>` | Idempotently installs or upgrades a release (recommended for CI/CD) |
 | `helm list` | Lists all deployed releases across namespaces |
+| `helm status <release>` | Queries real-time operational status and active Kubernetes resources |
+| `helm get values <release>` | Retrieves user-supplied override values |
+| `helm get manifest <release>` | Prints live rendered manifests stored in the release Secret |
 | `helm history <release>` | Displays the complete revision history of a release |
 | `helm rollback <release> <revision>` | Rolls back a release to a previously known healthy revision |
 | `helm uninstall <release>` | Deletes the release and purges all associated Kubernetes resources |
+
+---
+
+<br>
+
+# Comprehensive Knowledge Guide: Concepts for Future Reference
+
+### 1. Helm 3 Internal Architecture: How Helm Really Works
+- **No Tiller Daemon (Client-Only Architecture)**: In Helm 2, an in-cluster component called `Tiller` ran with full cluster-admin rights, creating severe security vulnerabilities. Helm 3 completely removed Tiller. Helm now runs entirely on your local machine and uses your existing Kubernetes credentials (`~/.kube/config`).
+- **Release Storage in Secrets**: Helm persists the state of every release directly inside Kubernetes Secrets within the release's target namespace:
+  ```text
+  sh.helm.release.v1.<release-name>.v<revision>
+  ```
+  These secrets contain base64-encoded, gzipped JSON payloads capturing the full chart metadata, user-supplied values, and the exact rendered YAML manifest applied to the cluster.
+- **Three-Way Strategic Merge Patch**: When you run `helm upgrade`, Helm computes a three-way diff between:
+  1. The manifest from the **previous release revision**.
+  2. The **newly rendered manifest**.
+  3. The **live state of the Kubernetes cluster** (preserving out-of-band edits or horizontal pod autoscaler adjustments).
+
+---
+
+### 2. Configuration Hierarchy & Precedence Rules
+When configuring charts for multiple environments (Dev, Staging, Prod), values are evaluated according to a strict precedence order (from lowest to highest priority):
+
+$$\text{values.yaml (Chart Defaults)} \longrightarrow \text{Parent Chart values} \longrightarrow \text{-f values-env.yaml} \longrightarrow \text{--set / --set-string (Highest Priority)}$$
+
+**Best Practice Rule**: Never use `--set` in production CI/CD pipelines. Keep all configurations stored in version-controlled YAML files (`values-staging.yaml`, `values-prod.yaml`) to ensure complete GitOps reproducibility.
+
+---
+
+### 3. Go Templating, Sprig Functions & Indentation Control
+Helm leverages Go templates combined with the Sprig template function library:
+- **Root Context (`.` / "dot")**:
+  - `.Values`: Variables passed from `values.yaml` or CLI flags.
+  - `.Release.Name`, `.Release.Namespace`, `.Release.Revision`: Runtime release parameters.
+  - `.Chart.Name`, `.Chart.Version`, `.Chart.AppVersion`: Metadata defined in `Chart.yaml`.
+  - `.Files.Get`: Reads arbitrary non-template files packaged with the chart.
+- **Whitespace Chomping (`{{-` and `-}}`)**:
+  - `{{-` strips all whitespace and newlines to the left of the expression.
+  - `-}}` strips all whitespace and newlines to the right.
+  - *Why it matters*: YAML is strictly indentation-sensitive. Improper whitespace handling corrupts Kubernetes manifest syntax.
+- **Template Filters & Pipelines (`|`)**:
+  ```yaml
+  name: {{ .Values.appName | default "demo" | lower | quote }}
+  ```
+- **Conditional Logic**:
+  ```yaml
+  {{- if .Values.ingress.enabled }}
+  apiVersion: networking.k8s.io/v1
+  kind: Ingress
+  ...
+  {{- end }}
+  ```
+
+---
+
+### 4. Zero-Downtime Rollbacks & Production Incident Handling
+- **Append-Only Revision Model**: Rolling back does **not** erase or delete broken revisions. If Revision 3 fails and you roll back to Revision 2, Helm generates **Revision 4** whose state is identical to Revision 2. This guarantees a complete, tamper-proof audit trail for compliance and post-mortems.
+- **Automated Rollback with `--atomic`**:
+  ```bash
+  helm upgrade --install my-app ./chart \
+    -f values-prod.yaml \
+    --atomic \
+    --timeout 180s
+  ```
+  If any pod fails liveness probes, readiness probes, or enters `CrashLoopBackOff`/`ImagePullBackOff` within 180 seconds, Helm automatically initiates an instant rollback to the previous revision without human intervention.
+
+---
+
+### 5. Troubleshooting Common Helm Errors
+
+| Error Message | Root Cause | Solution |
+|---|---|---|
+| `cannot reuse a name that is still in use` | A release with that name already exists in the namespace. | Run `helm uninstall <name>` or use `helm upgrade --install <name> <chart>`. |
+| `ImagePullBackOff` / `ErrImagePull` | The image repository or image tag specified in values does not exist. | Verify docker image name/tag; execute `helm rollback <name> <last-good-revision>`. |
+| `error converting YAML to JSON: mapping values are not allowed here` | Malformed indentation or missing quotes around template variables. | Run `helm lint <chart>` and `helm template <name> <chart> --debug` to find the exact line. |
+| `kubernetes cluster unreachable` | Minikube or Docker Desktop is stopped. | Start Minikube (`minikube start`) and verify connectivity (`kubectl get nodes`). |
+
